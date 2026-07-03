@@ -55,6 +55,26 @@ PROXIMITY_THRESHOLD=50 PROXIMITY_BASELINE_MARGIN=20 PROXIMITY_COOLDOWN_SECONDS=0
 
 Whenever the GIF changes from a button press or proximity trigger, the onboard LED blinks red. The blink duration can be changed with `GIF_CHANGE_BLINK_SECONDS`.
 
+## PM2 Setup
+
+Install PM2 globally:
+
+```bash
+npm install pm2 -g
+```
+
+Add the PM2 startup script so the application starts on boot:
+
+```bash
+pm2 startup
+```
+
+The app is configured in `ecosystem.config.js`. Start and persist it with:
+
+```bash
+make start
+```
+
 ## Checks
 
 ```bash

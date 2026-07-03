@@ -1,4 +1,4 @@
-.PHONY: uv-setup app format lint lint-fix typecheck check
+.PHONY: uv-setup app format lint lint-fix typecheck check start stop restart
 
 uv-setup:
 	uv venv --clear
@@ -21,3 +21,11 @@ typecheck:
 
 check: lint typecheck
 
+start:
+	pm2 start && pm2 save --force
+
+stop:
+	pm2 stop all && pm2 save --force
+	pm2 flush
+
+restart: stop start
