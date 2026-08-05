@@ -12,6 +12,13 @@ from src.apps.status_display.settings import settings
 
 console = Console()
 ROOT_DIR = Path(__file__).resolve().parents[3]
+PROXIMITY_MEASUREMENT_MILLISECONDS = 10
+PROXIMITY_MEASUREMENT_SECONDS = PROXIMITY_MEASUREMENT_MILLISECONDS / 1000
+PROXIMITY_CONFIRMATION_SAMPLES = 2
+PROXIMITY_LED_CURRENT_MILLIAMPS = 100
+PROXIMITY_LED_DUTY_CYCLE = 1.0
+PROXIMITY_LED_PULSE_FREQUENCY_KILOHERTZ = 30
+PROXIMITY_LED_PULSES = 15
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
@@ -29,26 +36,36 @@ class ProximityNextTrigger:
         ltr559_module = import_module("ltr559")
 
         self.sensor: Any = ltr559_module.LTR559()
+        self._configure_maximum_range()
+        self.sensor.set_proximity_rate_ms(PROXIMITY_MEASUREMENT_MILLISECONDS)
         self.threshold = max(
             threshold,
             self._measure_baseline(baseline_samples) + baseline_margin,
         )
         self.cooldown_seconds = cooldown_seconds
+        self.next_sample_at = time.monotonic() + PROXIMITY_MEASUREMENT_SECONDS
+        self.near_samples = 0
         self.was_near = False
         self.last_triggered = 0.0
         console.log(f"proximity sensor ready, threshold: {self.threshold}")
 
     def next_requested(self) -> bool:
+        now = time.monotonic()
+        if now < self.next_sample_at:
+            return False
+
+        self.next_sample_at = now + PROXIMITY_MEASUREMENT_SECONDS
         proximity = int(self.sensor.get_proximity(passive=False))
         is_near = proximity >= self.threshold
-        now = time.monotonic()
+        self.near_samples = self.near_samples + 1 if is_near else 0
+        is_confirmed_near = self.near_samples >= PROXIMITY_CONFIRMATION_SAMPLES
         should_trigger = (
-            is_near
+            is_confirmed_near
             and not self.was_near
             and now - self.last_triggered >= self.cooldown_seconds
         )
 
-        self.was_near = is_near
+        self.was_near = is_confirmed_near
         if should_trigger:
             self.last_triggered = now
             console.log(f"proximity next trigger: {proximity}")
@@ -56,13 +73,23 @@ class ProximityNextTrigger:
         return should_trigger
 
     def _measure_baseline(self, samples: int) -> int:
-        readings = [
-            int(self.sensor.get_proximity(passive=False))
-            for _sample in range(max(samples, 1))
-        ]
-        baseline = max(readings)
+        def read_sample() -> int:
+            time.sleep(PROXIMITY_MEASUREMENT_SECONDS)
+            return int(self.sensor.get_proximity(passive=False))
+
+        baseline = max(read_sample() for _sample in range(max(samples, 1)))
         console.log(f"proximity baseline: {baseline}")
         return baseline
+
+    def _configure_maximum_range(self) -> None:
+        self.sensor._ltr559.set(
+            "PS_LED",
+            current_ma=PROXIMITY_LED_CURRENT_MILLIAMPS,
+            duty_cycle=PROXIMITY_LED_DUTY_CYCLE,
+            pulse_freq_khz=PROXIMITY_LED_PULSE_FREQUENCY_KILOHERTZ,
+        )
+
+        self.sensor._ltr559.set("PS_N_PULSES", count=PROXIMITY_LED_PULSES)
 
 
 def setup_proximity_trigger() -> ProximityNextTrigger | None:

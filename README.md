@@ -47,7 +47,7 @@ make app
 
 The app shuffles the PNG frame directories from `frames/`, loads one animation at a time, and lets the hardware buttons move through the playlist.
 
-The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor. At startup, the app samples the sensor's ambient baseline and triggers when proximity rises above that baseline plus a margin, with a one second cooldown. These can be changed with environment variables:
+The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor at its maximum LED current and pulse count. At startup, the app samples the sensor's ambient baseline at the sensor's measurement rate and triggers after two consecutive readings rise above that baseline plus a margin, with a one second cooldown. These can be changed with environment variables:
 
 ```bash
 PROXIMITY_THRESHOLD=50 PROXIMITY_BASELINE_MARGIN=20 PROXIMITY_COOLDOWN_SECONDS=0.75 make app
