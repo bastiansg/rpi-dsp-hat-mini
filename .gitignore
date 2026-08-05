@@ -4,6 +4,6 @@ __pycache__/
 .ruff_cache/
 .pyrefly/
 .env
-gif/
 uv.lock
-
+gif/
+frames/

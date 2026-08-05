@@ -19,7 +19,7 @@ class DisplayHatMiniScreen:
         self.set_backlight(backlight)
 
     def show(self, image: Image.Image) -> None:
-        self.buffer.paste(image)
+        self.buffer.paste(image, ((self.buffer.width - image.width) // 2, 0))
         self.display.display()
 
     def set_led(self, red: float, green: float, blue: float) -> None:

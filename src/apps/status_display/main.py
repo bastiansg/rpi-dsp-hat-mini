@@ -2,114 +2,20 @@ import signal
 import time
 from importlib import import_module
 from pathlib import Path
-from random import shuffle
 from typing import Any
 
-from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 from rich.console import Console
 
+from src.apps.status_display.animation import FrameAnimationDeck, frame_directories
 from src.apps.status_display.hardware import ButtonPressReader, DisplayHatMiniScreen
 from src.apps.status_display.settings import settings
 
 console = Console()
 ROOT_DIR = Path(__file__).resolve().parents[3]
-GIF_DIR = ROOT_DIR / "gif"
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return min(max(value, minimum), maximum)
-
-
-def discover_gifs() -> list[Path]:
-    gifs = sorted(GIF_DIR.glob("*.gif"))
-    shuffle(gifs)
-    return gifs
-
-
-class GifPlayer:
-    def __init__(
-        self,
-        paths: list[Path],
-        width: int,
-        height: int,
-        fallback_frame_seconds: float,
-    ):
-        if not paths:
-            msg = f"No GIF files found in {GIF_DIR}"
-            raise RuntimeError(msg)
-
-        self.paths = paths
-        self.size = (width, height)
-        self.fallback_frame_seconds = fallback_frame_seconds
-        self.index = 0
-        self.frame_index = 0
-        self.frame_started = time.monotonic()
-        self.frames: list[Image.Image] = []
-        self.durations: list[float] = []
-        self.load_current()
-
-    @property
-    def current_path(self) -> Path:
-        return self.paths[self.index]
-
-    def load_current(self) -> None:
-        for frame in self.frames:
-            frame.close()
-
-        self.frames = []
-        self.durations = []
-        self.frame_index = 0
-        self.frame_started = time.monotonic()
-
-        try:
-            with Image.open(self.current_path) as image:
-                for raw_frame in ImageSequence.Iterator(image):
-                    duration_ms = raw_frame.info.get("duration", 0)
-                    self.durations.append(
-                        max(duration_ms / 1000, self.fallback_frame_seconds)
-                    )
-                    self.frames.append(self._fit(raw_frame.convert("RGB")))
-        except (OSError, UnidentifiedImageError) as exc:
-            msg = f"Could not load GIF {self.current_path}"
-            raise RuntimeError(msg) from exc
-
-        if not self.frames:
-            msg = f"GIF has no frames: {self.current_path}"
-            raise RuntimeError(msg)
-
-        console.log(f"GIF {self.index + 1}/{len(self.paths)}: {self.current_path.name}")
-
-    def next(self) -> None:
-        self.index = (self.index + 1) % len(self.paths)
-        self.load_current()
-
-    def previous(self) -> None:
-        self.index = (self.index - 1) % len(self.paths)
-        self.load_current()
-
-    def frame(self) -> Image.Image:
-        now = time.monotonic()
-        while now - self.frame_started >= self.durations[self.frame_index]:
-            self.frame_started += self.durations[self.frame_index]
-            self.frame_index = (self.frame_index + 1) % len(self.frames)
-
-        return self.frames[self.frame_index]
-
-    def close(self) -> None:
-        for frame in self.frames:
-            frame.close()
-
-    def _fit(self, frame: Image.Image) -> Image.Image:
-        image = ImageOps.contain(frame, self.size)
-        fitted = Image.new("RGB", self.size, (0, 0, 0))
-        fitted.paste(
-            image,
-            (
-                (self.size[0] - image.width) // 2,
-                (self.size[1] - image.height) // 2,
-            ),
-        )
-        return fitted.rotate(180)
 
 
 class ProximityNextTrigger:
@@ -187,12 +93,13 @@ def main() -> None:
         settings.height,
         settings.initial_backlight,
     )
-    player = GifPlayer(
-        discover_gifs(),
-        settings.width,
-        settings.height,
-        settings.frame_seconds,
+    animation_deck = FrameAnimationDeck(
+        frame_directories(ROOT_DIR / settings.frames_directory),
+        frame_duration=settings.frame_seconds,
+        max_cached_animations=settings.max_cached_animations,
     )
+    current_animation = animation_deck.next_animation()
+    console.log(f"showing animation: {current_animation.path}")
     buttons = ButtonPressReader(
         screen,
         debounce_seconds=settings.button_debounce_seconds,
@@ -215,11 +122,13 @@ def main() -> None:
             for name in buttons.pressed():
                 if name == "X":
                     blink_change_led(screen)
-                    player.previous()
-                elif name == "Y":
+                    current_animation = animation_deck.previous_animation()
+                    console.log(f"showing animation: {current_animation.path}")
+                if name == "Y":
                     blink_change_led(screen)
-                    player.next()
-                elif name == "A":
+                    current_animation = animation_deck.next_animation()
+                    console.log(f"showing animation: {current_animation.path}")
+                if name == "A":
                     backlight = clamp(
                         backlight - settings.backlight_step,
                         settings.min_backlight,
@@ -227,7 +136,7 @@ def main() -> None:
                     )
                     screen.set_backlight(backlight)
                     console.log(f"backlight decreased to {backlight:.2f}")
-                elif name == "B":
+                if name == "B":
                     backlight = clamp(
                         backlight + settings.backlight_step,
                         settings.min_backlight,
@@ -238,13 +147,16 @@ def main() -> None:
 
             if proximity is not None and proximity.next_requested():
                 blink_change_led(screen)
-                player.next()
+                current_animation = animation_deck.next_animation()
+                console.log(f"showing animation: {current_animation.path}")
 
             screen.set_led(0, 0, 0)
-            screen.show(player.frame())
-            time.sleep(settings.frame_seconds)
+            frame_started = time.monotonic()
+            screen.show(current_animation.next_frame())
+            elapsed = time.monotonic() - frame_started
+            time.sleep(max(current_animation.frame_duration - elapsed, 0.0))
     finally:
-        player.close()
+        animation_deck.close()
         screen.close()
 
 

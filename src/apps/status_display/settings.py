@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     height: int = 240
     button_debounce_seconds: float = 0.08
     frame_seconds: float = 1 / 30
+    frames_directory: str = "frames"
+    max_cached_animations: int = 1
     backlight_step: float = 0.1
     min_backlight: float = 0.1
     max_backlight: float = 1.0

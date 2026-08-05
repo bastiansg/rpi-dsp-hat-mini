@@ -13,9 +13,9 @@ Button behavior:
 
 - `A`: decrease display backlight.
 - `B`: increase display backlight.
-- `X`: previous GIF.
-- `Y`: next GIF.
-- LTR-559 proximity sensor: next GIF when an object is detected close to the sensor.
+- `X`: previous animation.
+- `Y`: next animation.
+- LTR-559 proximity sensor: next animation when an object is detected close to the sensor.
 
 ## Hardware Setup
 
@@ -45,7 +45,7 @@ make uv-setup
 make app
 ```
 
-The app shuffles all GIFs from `gif/`, plays them as animations, and lets the hardware buttons move through the playlist.
+The app shuffles the PNG frame directories from `frames/`, loads one animation at a time, and lets the hardware buttons move through the playlist.
 
 The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor. At startup, the app samples the sensor's ambient baseline and triggers when proximity rises above that baseline plus a margin, with a one second cooldown. These can be changed with environment variables:
 
@@ -53,7 +53,7 @@ The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor. At sta
 PROXIMITY_THRESHOLD=50 PROXIMITY_BASELINE_MARGIN=20 PROXIMITY_COOLDOWN_SECONDS=0.75 make app
 ```
 
-Whenever the GIF changes from a button press or proximity trigger, the onboard LED blinks red. The blink duration can be changed with `GIF_CHANGE_BLINK_SECONDS`.
+Whenever the animation changes from a button press or proximity trigger, the onboard LED blinks red. The blink duration can be changed with `GIF_CHANGE_BLINK_SECONDS`.
 
 ## PM2 Setup
 
