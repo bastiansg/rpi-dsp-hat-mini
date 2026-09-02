@@ -12,13 +12,6 @@ from src.apps.status_display.settings import settings
 
 console = Console()
 ROOT_DIR = Path(__file__).resolve().parents[3]
-PROXIMITY_MEASUREMENT_MILLISECONDS = 10
-PROXIMITY_MEASUREMENT_SECONDS = PROXIMITY_MEASUREMENT_MILLISECONDS / 1000
-PROXIMITY_CONFIRMATION_SAMPLES = 2
-PROXIMITY_LED_CURRENT_MILLIAMPS = 100
-PROXIMITY_LED_DUTY_CYCLE = 1.0
-PROXIMITY_LED_PULSE_FREQUENCY_KILOHERTZ = 30
-PROXIMITY_LED_PULSES = 15
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
@@ -32,18 +25,31 @@ class ProximityNextTrigger:
         cooldown_seconds: float,
         baseline_samples: int,
         baseline_margin: int,
+        measurement_milliseconds: int,
+        confirmation_samples: int,
+        led_current_milliamps: int,
+        led_duty_cycle: float,
+        led_pulse_frequency_kilohertz: int,
+        led_pulses: int,
     ):
         ltr559_module = import_module("ltr559")
 
         self.sensor: Any = ltr559_module.LTR559()
-        self._configure_maximum_range()
-        self.sensor.set_proximity_rate_ms(PROXIMITY_MEASUREMENT_MILLISECONDS)
+        self._configure_maximum_range(
+            led_current_milliamps,
+            led_duty_cycle,
+            led_pulse_frequency_kilohertz,
+            led_pulses,
+        )
+        self.sensor.set_proximity_rate_ms(measurement_milliseconds)
+        self.measurement_seconds = measurement_milliseconds / 1000
+        self.confirmation_samples = confirmation_samples
         self.threshold = max(
             threshold,
             self._measure_baseline(baseline_samples) + baseline_margin,
         )
         self.cooldown_seconds = cooldown_seconds
-        self.next_sample_at = time.monotonic() + PROXIMITY_MEASUREMENT_SECONDS
+        self.next_sample_at = time.monotonic() + self.measurement_seconds
         self.near_samples = 0
         self.was_near = False
         self.last_triggered = 0.0
@@ -54,11 +60,11 @@ class ProximityNextTrigger:
         if now < self.next_sample_at:
             return False
 
-        self.next_sample_at = now + PROXIMITY_MEASUREMENT_SECONDS
+        self.next_sample_at = now + self.measurement_seconds
         proximity = int(self.sensor.get_proximity(passive=False))
         is_near = proximity >= self.threshold
         self.near_samples = self.near_samples + 1 if is_near else 0
-        is_confirmed_near = self.near_samples >= PROXIMITY_CONFIRMATION_SAMPLES
+        is_confirmed_near = self.near_samples >= self.confirmation_samples
         should_trigger = (
             is_confirmed_near
             and not self.was_near
@@ -74,22 +80,28 @@ class ProximityNextTrigger:
 
     def _measure_baseline(self, samples: int) -> int:
         def read_sample() -> int:
-            time.sleep(PROXIMITY_MEASUREMENT_SECONDS)
+            time.sleep(self.measurement_seconds)
             return int(self.sensor.get_proximity(passive=False))
 
         baseline = max(read_sample() for _sample in range(max(samples, 1)))
         console.log(f"proximity baseline: {baseline}")
         return baseline
 
-    def _configure_maximum_range(self) -> None:
+    def _configure_maximum_range(
+        self,
+        led_current_milliamps: int,
+        led_duty_cycle: float,
+        led_pulse_frequency_kilohertz: int,
+        led_pulses: int,
+    ) -> None:
         self.sensor._ltr559.set(
             "PS_LED",
-            current_ma=PROXIMITY_LED_CURRENT_MILLIAMPS,
-            duty_cycle=PROXIMITY_LED_DUTY_CYCLE,
-            pulse_freq_khz=PROXIMITY_LED_PULSE_FREQUENCY_KILOHERTZ,
+            current_ma=led_current_milliamps,
+            duty_cycle=led_duty_cycle,
+            pulse_freq_khz=led_pulse_frequency_kilohertz,
         )
 
-        self.sensor._ltr559.set("PS_N_PULSES", count=PROXIMITY_LED_PULSES)
+        self.sensor._ltr559.set("PS_N_PULSES", count=led_pulses)
 
 
 def setup_proximity_trigger() -> ProximityNextTrigger | None:
@@ -102,6 +114,12 @@ def setup_proximity_trigger() -> ProximityNextTrigger | None:
             settings.proximity_cooldown_seconds,
             settings.proximity_baseline_samples,
             settings.proximity_baseline_margin,
+            settings.proximity_measurement_milliseconds,
+            settings.proximity_confirmation_samples,
+            settings.proximity_led_current_milliamps,
+            settings.proximity_led_duty_cycle,
+            settings.proximity_led_pulse_frequency_kilohertz,
+            settings.proximity_led_pulses,
         )
     except (ImportError, OSError, RuntimeError) as exc:
         console.log(f"proximity sensor disabled: {exc}")
@@ -124,6 +142,7 @@ def main() -> None:
     animation_deck = FrameAnimationDeck(
         frame_directories(ROOT_DIR / settings.frames_directory),
         frame_duration=settings.frame_seconds,
+        frame_buffer_size=settings.frame_buffer_size,
         max_cached_animations=settings.max_cached_animations,
     )
     current_animation = animation_deck.next_animation()
@@ -180,7 +199,9 @@ def main() -> None:
 
             screen.set_led(0, 0, 0)
             frame_started = time.monotonic()
-            screen.show(current_animation.next_frame())
+            frame = current_animation.next_frame()
+            screen.show(frame)
+            frame.close()
             elapsed = time.monotonic() - frame_started
             time.sleep(max(current_animation.frame_duration - elapsed, 0.0))
     finally:

@@ -1,33 +1,99 @@
 import random
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Iterable
 from pathlib import Path
+from threading import Condition, Thread
 
 from PIL import Image
 
 
 class FrameAnimation:
-    def __init__(self, path: Path, frame_duration: float):
+    def __init__(self, path: Path, frame_duration: float, frame_buffer_size: int):
         self.path = path
-        paths = sorted(path.glob("*.png"))
-        if not paths:
+        self.paths = tuple(sorted(path.glob("*.png")))
+        if not self.paths:
             raise ValueError(f"No PNG frames found in directory: {path}")
 
-        self.frames = tuple(load_png_frame(path) for path in paths)
         self.frame_duration = frame_duration
-        self.index = 0
+        self.frame_buffer_size = max(frame_buffer_size, 1)
+        self._condition = Condition()
+        self._frames: deque[Image.Image] = deque()
+        self._next_index = 0
+        self._generation = 0
+        self._error: Exception | None = None
+        self._closed = False
+        self._worker = Thread(
+            target=self._preload_frames,
+            name=f"frame-preloader-{path.name}",
+            daemon=True,
+        )
+        self._worker.start()
 
     def next_frame(self) -> Image.Image:
-        frame = self.frames[self.index]
-        self.index = (self.index + 1) % len(self.frames)
-        return frame
+        with self._condition:
+            self._condition.wait_for(
+                lambda: bool(self._frames) or self._error is not None or self._closed
+            )
+            if self._error is not None:
+                raise RuntimeError(
+                    f"Failed to preload frames from: {self.path}"
+                ) from self._error
+            if self._closed:
+                raise RuntimeError(f"Animation is closed: {self.path}")
+
+            frame = self._frames.popleft()
+            self._condition.notify()
+            return frame
 
     def reset(self) -> None:
-        self.index = 0
+        with self._condition:
+            self._generation += 1
+            self._next_index = 0
+            self._close_frames()
+            self._condition.notify_all()
 
     def close(self) -> None:
-        for frame in self.frames:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+        self._worker.join()
+        self._close_frames()
+
+    def _preload_frames(self) -> None:
+        while True:
+            with self._condition:
+                self._condition.wait_for(
+                    lambda: len(self._frames) < self.frame_buffer_size or self._closed
+                )
+                if self._closed:
+                    return
+
+                path = self.paths[self._next_index]
+                self._next_index = (self._next_index + 1) % len(self.paths)
+                generation = self._generation
+
+            try:
+                frame = load_png_frame(path)
+            except Exception as exc:
+                with self._condition:
+                    self._error = exc
+                    self._condition.notify_all()
+                return
+
+            with self._condition:
+                if generation != self._generation or self._closed:
+                    frame.close()
+                    continue
+
+                self._frames.append(frame)
+                self._condition.notify()
+
+    def _close_frames(self) -> None:
+        for frame in self._frames:
             frame.close()
+
+        self._frames.clear()
 
 
 class FrameAnimationDeck:
@@ -35,6 +101,7 @@ class FrameAnimationDeck:
         self,
         paths: Iterable[Path],
         frame_duration: float,
+        frame_buffer_size: int,
         max_cached_animations: int = 1,
     ):
         self.paths = list(paths)
@@ -44,6 +111,7 @@ class FrameAnimationDeck:
         random.shuffle(self.paths)
         self.index = -1
         self.frame_duration = frame_duration
+        self.frame_buffer_size = max(frame_buffer_size, 1)
         self.max_cached_animations = max(max_cached_animations, 1)
         self.animation_cache: OrderedDict[Path, FrameAnimation] = OrderedDict()
 
@@ -63,7 +131,12 @@ class FrameAnimationDeck:
                 _path, old_animation = self.animation_cache.popitem(last=False)
                 old_animation.close()
 
-            animation = FrameAnimation(path, self.frame_duration)
+            animation = FrameAnimation(
+                path,
+                self.frame_duration,
+                self.frame_buffer_size,
+            )
+
             self.animation_cache[path] = animation
         else:
             self.animation_cache.move_to_end(path)
