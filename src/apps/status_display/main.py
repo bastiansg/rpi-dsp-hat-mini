@@ -119,6 +119,7 @@ def main() -> None:
         settings.width,
         settings.height,
         settings.initial_backlight,
+        settings.spi_speed_hz,
     )
     animation_deck = FrameAnimationDeck(
         frame_directories(ROOT_DIR / settings.frames_directory),

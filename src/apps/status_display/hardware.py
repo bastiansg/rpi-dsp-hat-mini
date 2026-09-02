@@ -13,9 +13,16 @@ BUTTONS = {
 
 
 class DisplayHatMiniScreen:
-    def __init__(self, width: int, height: int, backlight: float):
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        backlight: float,
+        spi_speed_hz: int,
+    ):
         self.buffer = Image.new("RGB", (width, height), (0, 0, 0))
         self.display = DisplayHATMini(self.buffer, backlight_pwm=True)
+        self.display.st7789._spi.max_speed_hz = spi_speed_hz
         self.set_backlight(backlight)
 
     def show(self, image: Image.Image) -> None:
