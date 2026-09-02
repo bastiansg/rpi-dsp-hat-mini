@@ -45,13 +45,15 @@ make uv-setup
 make app
 ```
 
-The app shuffles the PNG frame directories from `frames/`, loads one animation at a time, and lets the hardware buttons move through the playlist.
+The app shuffles the PNG frame directories from `frames/` and lets the hardware buttons move through the playlist. A background thread keeps a bounded queue of decoded frames ready so image loading does not interrupt rendering. The queue holds 20 frames by default and can be changed with `FRAME_BUFFER_SIZE`.
 
-The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor at its maximum LED current and pulse count. At startup, the app samples the sensor's ambient baseline at the sensor's measurement rate and triggers after two consecutive readings rise above that baseline plus a margin, with a one second cooldown. These can be changed with environment variables:
+The Multi-Sensor Stick proximity trigger uses the onboard LTR-559 sensor. At startup, the app samples the sensor's ambient baseline and triggers after two consecutive readings rise above that baseline plus a margin, with a one second cooldown. The threshold, baseline, timing, confirmation count, and LED measurement parameters can all be changed with environment variables:
 
 ```bash
 PROXIMITY_THRESHOLD=50 PROXIMITY_BASELINE_MARGIN=20 PROXIMITY_COOLDOWN_SECONDS=0.75 make app
 ```
+
+The additional proximity settings are `PROXIMITY_ENABLED`, `PROXIMITY_BASELINE_SAMPLES`, `PROXIMITY_MEASUREMENT_MILLISECONDS`, `PROXIMITY_CONFIRMATION_SAMPLES`, `PROXIMITY_LED_CURRENT_MILLIAMPS`, `PROXIMITY_LED_DUTY_CYCLE`, `PROXIMITY_LED_PULSE_FREQUENCY_KILOHERTZ`, and `PROXIMITY_LED_PULSES`.
 
 Whenever the animation changes from a button press or proximity trigger, the onboard LED blinks red. The blink duration can be changed with `GIF_CHANGE_BLINK_SECONDS`.
 

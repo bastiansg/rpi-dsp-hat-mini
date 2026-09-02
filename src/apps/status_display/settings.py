@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     )
 
     frame_buffer_size: PositiveInt = Field(
-        default=10,
+        default=20,
         description="Number of decoded animation frames kept in memory",
     )
 
